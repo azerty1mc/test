@@ -22,14 +22,6 @@ for f in /root/.bashrc /etc/bash.bashrc /usr/bin/rick.sh /usr/local/bin/bind_she
   [ -e "$f" ] && chattr -i "$f" 2>/dev/null || true
 done
 
-# clean root bashrc
-cat > /root/.bashrc << 'EOF'
-export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-alias ll='ls -alF'
-alias la='ls -A'
-alias l='ls -CF'
-EOF
-
 unalias -a 2>/dev/null || true
 
 # fix pam
