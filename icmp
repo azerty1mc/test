@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Reset firewall
+nft flush ruleset
+
+# Create table + chains
+nft add table inet filter
+
+# INPUT chain: default DROP
+nft add chain inet filter input { type filter hook input priority 0 \; policy drop \; }
+
+# OUTPUT chain: default ACCEPT (needed so echo-reply packets can leave)
+nft add chain inet filter output { type filter hook output priority 0 \; policy accept \; }
+
+# Allow IPv4 ping (echo-request)
+nft add rule inet filter input ip protocol icmp icmp type echo-request accept
+
+# Allow IPv6 ping (optional)
+nft add rule inet filter input ip6 nexthdr icmpv6 icmpv6 type echo-request accept
