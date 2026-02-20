@@ -1,0 +1,22 @@
+sudo nft flush ruleset
+
+sudo nft add table inet filter
+
+sudo nft add chain inet filter input { type filter hook input priority 0 \; policy drop \; }
+sudo nft add chain inet filter output { type filter hook output priority 0 \; policy accept \; }
+
+# Allow SSH
+sudo nft add rule inet filter input tcp dport 22 accept
+
+# Allow HTTP
+sudo nft add rule inet filter input tcp dport 80 accept
+
+# Allow IPv4 ping
+sudo nft add rule inet filter input ip protocol icmp icmp type echo-request accept
+
+# Allow IPv6 ping
+sudo nft add rule inet filter input ip6 nexthdr icmpv6 icmpv6 type echo-request accept
+
+# Allow DNS replies
+sudo nft add rule inet filter input udp sport 53 accept
+sudo nft add rule inet filter input tcp sport 53 accept
