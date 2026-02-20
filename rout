@@ -6,31 +6,6 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-### FIREWALL ###
-iptables -F
-iptables -X
-
-# default deny everything
-iptables -P INPUT DROP
-iptables -P FORWARD DROP
-iptables -P OUTPUT ACCEPT
-
-# allow loopback
-iptables -A INPUT -i lo -j ACCEPT
-
-# allow established connections
-iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-
-# allow ICMP (ping)
-iptables -A INPUT -p icmp -j ACCEPT
-
-# allow HTTP (port 80)
-iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-
-### OPTIONAL: NAT (if your box routes traffic)
-iptables -t nat -F
-iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-
 ### KILL MALICIOUS LISTENERS ###
 pkill -f "nc -l" 2>/dev/null || true
 pkill -f "ncat -l" 2>/dev/null || true
