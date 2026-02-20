@@ -1,0 +1,120 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ "$EUID" -ne 0 ]; then
+  echo "run as root"
+  exit 1
+fi
+
+backup="/root/vuln_backup_$(date +%s)"
+mkdir -p "$backup"
+
+cp -a /etc/passwd "$backup"/passwd
+cp -a /etc/shadow "$backup"/shadow
+cp -a /etc/group "$backup"/group
+cp -a /etc/sudoers "$backup"/sudoers
+cp -a /etc/pam.d/common-auth "$backup"/common-auth 2>/dev/null || true
+cp -a /etc/bash.bashrc "$backup"/bash.bashrc 2>/dev/null || true
+
+# remove immutable flags
+
+for f in /root/.bashrc /etc/bash.bashrc /usr/bin/rick.sh /usr/local/bin/bind_shell.sh /usr/lib/app.py; do
+  [ -e "$f" ] && chattr -i "$f" 2>/dev/null || true
+done
+
+# clean root bashrc
+cat > /root/.bashrc << 'EOF'
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+EOF
+
+unalias -a 2>/dev/null || true
+
+# fix pam
+cat > /etc/pam.d/common-auth << 'EOF'
+auth    [success=1 default=ignore]    pam_unix.so nullok_secure
+auth    requisite                     pam_deny.so
+auth    required                      pam_permit.so
+auth    optional                      pam_cap.so
+EOF
+
+# fix sudoers
+sed -i '/nopasswd/d' /etc/sudoers
+grep -q '^root' /etc/sudoers || echo 'root ALL=(ALL:ALL) ALL' >> /etc/sudoers
+chmod 440 /etc/sudoers
+
+# remove uid 0 backdoors
+for u in $(awk -F: '($3 == 0 && $1 != "root"){print $1}' /etc/passwd); do
+  userdel -r "$u" 2>/dev/null || userdel "$u" 2>/dev/null || true
+done
+
+# lock non-shell users
+for u in $(awk -F: '($7 !~ /(bash|sh)$/){print $1}' /etc/passwd); do
+  passwd -l "$u" 2>/dev/null || true
+done
+
+# ensure root shell is correct
+sed -i 's#^root:.*:#root:x:0:0:root:/root:/bin/bash:#' /etc/passwd
+
+# reset passwords
+echo "enter new password for all shell users:"
+read -s pw
+echo "confirm:"
+read -s pw2
+if [ "$pw" = "$pw2" ] && [ -n "$pw" ]; then
+  for u in $(awk -F: '($7 ~ /(bash|sh)$/){print $1}' /etc/passwd); do
+    echo "$u:$pw" | chpasswd 2>/dev/null || true
+  done
+fi
+
+# remove suid from shells
+chmod u-s /bin/bash 2>/dev/null || true
+chmod u-s /bin/sh 2>/dev/null || true
+
+# remove capabilities from suspicious binaries
+for b in /opt/python /var/vim; do
+  [ -e "$b" ] && setcap -r "$b" 2>/dev/null || true
+done
+
+# stop and disable malicious services
+for s in bind_shell sys flaskapp; do
+  systemctl stop "$s" 2>/dev/null || true
+  systemctl disable "$s" 2>/dev/null || true
+  rm -f /etc/systemd/system/"$s".service 2>/dev/null || true
+done
+
+# stop and disable malicious timers
+for t in bind_shell.timer sys.timer; do
+  systemctl stop "$t" 2>/dev/null || true
+  systemctl disable "$t" 2>/dev/null || true
+  rm -f /etc/systemd/system/"$t" 2>/dev/null || true
+done
+
+systemctl daemon-reload
+
+# kill active listeners
+
+pkill -f 'nc -l' 2>/dev/null || true
+pkill -f 'ncat -l' 2>/dev/null || true
+pkill -f gunicorn 2>/dev/null || true
+pkill -f "flask" 2>/dev/null || true
+pkill -f "telnetd" 2>/dev/null || true
+
+# clean cron
+rm -f /var/spool/cron/crontabs/"*" 2>/dev/null || true
+sed -i '/nc -l/d;/ncat -l/d;/bash -i/d' /etc/crontab 2>/dev/null || true
+
+for d in /etc/cron.d /etc/cron.hourly /etc/cron.daily /etc/cron.weekly /etc/cron.monthly; do
+  [ -d "$d" ] && grep -lE 'nc -l|ncat -l|bash -i|curl .*sh' "$d"/"*" 2>/dev/null | xargs -r rm -f
+done
+
+# disable unsafe services
+systemctl stop inetd 2>/dev/null || true
+systemctl disable inetd 2>/dev/null || true
+
+systemctl stop cockpit.socket cockpit 2>/dev/null || true
+systemctl disable cockpit.socket cockpit 2>/dev/null || true
+
+echo "vuln baseline complete. run rout next."
