@@ -1,0 +1,70 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ "$EUID" -ne 0 ]; then
+  echo "run as root"
+  exit 1
+fi
+
+### FIREWALL ###
+iptables -F
+iptables -X
+
+# default deny everything
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT
+
+# allow loopback
+iptables -A INPUT -i lo -j ACCEPT
+
+# allow established connections
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# allow ICMP (ping)
+iptables -A INPUT -p icmp -j ACCEPT
+
+# allow HTTP (port 80)
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+
+### OPTIONAL: NAT (if your box routes traffic)
+iptables -t nat -F
+iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+
+### KILL MALICIOUS LISTENERS ###
+pkill -f "nc -l" 2>/dev/null || true
+pkill -f "ncat -l" 2>/dev/null || true
+pkill -f "gunicorn" 2>/dev/null || true
+pkill -f "flask" 2>/dev/null || true
+pkill -f "telnetd" 2>/dev/null || true
+pkill -f "python -m http.server" 2>/dev/null || true
+pkill -f "python3 -m http.server" 2>/dev/null || true
+
+### REMOVE MALICIOUS SERVICES ###
+for s in bind_shell sys flaskapp backdoor revshell; do
+  systemctl stop "$s" 2>/dev/null || true
+  systemctl disable "$s" 2>/dev/null || true
+  rm -f /etc/systemd/system/"$s".service 2>/dev/null || true
+done
+
+for t in bind_shell.timer sys.timer revshell.timer; do
+  systemctl stop "$t" 2>/dev/null || true
+  systemctl disable "$t" 2>/dev/null || true
+  rm -f /etc/systemd/system/"$t" 2>/dev/null || true
+done
+
+systemctl daemon-reload
+
+### CLEAN CRON ###
+rm -f /var/spool/cron/crontabs/"*" 2>/dev/null || true
+sed -i '/nc -l/d;/ncat -l/d;/bash -i/d;/curl .*sh/d/' /etc/crontab 2>/dev/null || true
+
+### RESTORE HTTP ###
+echo "Hello World!" > /var/www/html/index.html 2>/dev/null || true
+systemctl restart apache2 2>/dev/null || true
+systemctl restart nginx 2>/dev/null || true
+
+### ENABLE IP FORWARDING (if router role)
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+echo "rout complete"
