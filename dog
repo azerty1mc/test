@@ -1,0 +1,31 @@
+#!/bin/bash
+
+### --- HTTP SERVICE SETUP --- ###
+
+# Start Apache if it exists
+systemctl start apache2 2>/dev/null
+systemctl enable apache2 2>/dev/null
+
+# Put scoring-required content
+echo "Hello World!" > /var/www/html/index.html 2>/dev/null
+
+
+### --- FIREWALL SETUP (NFTABLES) --- ###
+
+# Create base table
+nft add table inet filter 2>/dev/null
+
+# Create input chain with DROP policy
+nft add chain inet filter input { type filter hook input priority 0 \; policy drop \; } 2>/dev/null
+
+# Allow ICMP ping (IPv4)
+nft add rule inet filter input ip protocol icmp icmp type echo-request accept
+
+# Allow ICMP ping (IPv6)
+nft add rule inet filter input ip6 nexthdr icmpv6 icmpv6 type echo-request accept
+
+# Allow HTTP
+nft add rule inet filter input tcp dport 80 accept
+
+# Allow SSH
+nft add rule inet filter input tcp dport 22 accept
